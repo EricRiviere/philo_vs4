@@ -35,6 +35,7 @@ struct	s_philo
 	long		meals;
 	long		lm_t;
 	bool		full;
+	bool		dead;
 	pthread_t	th_id;
 	t_mtx		philo_mtx;
 	t_fork		*first_fork;
@@ -66,7 +67,7 @@ long	gettime();
 bool    get_long(t_mtx *mutex, long *value);
 void    set_long(t_mtx *mutex, long *dest, long value);
 void	precise_usleep(long ms);
-void	wait_all_threads(t_table *table);
+bool	is_dead(t_philo *philo);
 
 //Check inputs
 bool	correct_input(int argc, char **argv);
@@ -80,4 +81,10 @@ void	start_simulation(t_table *table);
 
 //Print status
 void	print_status(t_philo *philo, const char *status);
+
+//Actions
+void    take_forks(t_philo *philo);
+void    eat(t_philo *philo);
+void    to_sleep(t_philo *philo);
+void    think(t_philo *philo);
 #endif

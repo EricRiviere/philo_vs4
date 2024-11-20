@@ -5,26 +5,35 @@ static void	*simulation(void *data)
 	t_philo *philo;
 
 	philo = (t_philo *)data;
-//	wait_all_threads(philo->table);
-//	philo->table->sim_start = gettime();
+	pthread_mutex_lock(&philo->table->table_mtx);
+	philo->table->sim_start = gettime();
+	philo->lm_t = gettime();
+	pthread_mutex_unlock(&philo->table->table_mtx);
 	while (1)
 	{
-		//Take forks & eat
-		pthread_mutex_lock(&philo->first_fork->fork);
-		print_status(philo, "has taken a fork");
-		pthread_mutex_lock(&philo->second_fork->fork);
-		print_status(philo, "has taken a fork");
-		philo->meals++;
-		print_status(philo, "is eating");
-		precise_usleep(philo->table->tto_eat);
-		pthread_mutex_unlock(&philo->first_fork->fork);
-		pthread_mutex_unlock(&philo->second_fork->fork);
-		//Sleep
-		print_status(philo, "is sleeping");
-		precise_usleep(philo->table->tto_sleep);
-		//Think
-		print_status(philo, "is thinking");
+		if (!get_bool(&philo->philo_mtx, &philo->full))
+		{
+			//Take forks & eat
+			if (!is_dead(philo))
+				take_forks(philo);
+			if (!is_dead(philo))
+				eat(philo);
+			//Sleep
+			if (!is_dead(philo))
+				to_sleep(philo);
+			//Think
+			if (!is_dead(philo))
+				think(philo);
+			else
+			{
+				print_status(philo, "died");
+				return (NULL);
+			}
+		}
+		else 
+			break ;
 	}
+	return (NULL);
 }
 
 void	start_simulation(t_table *table)
@@ -37,7 +46,9 @@ void	start_simulation(t_table *table)
 		pthread_create(&table->philos[i].th_id, NULL, simulation, &table->philos[i]);
 		i++;
 	}
-	table->sim_start = gettime();
+	// pthread_mutex_lock(&table->table_mtx);
+	// table->sim_start = gettime();
+	// pthread_mutex_unlock(&table->table_mtx);
 	i = 0;
 	while (i < table->philo_nbr)
 	{

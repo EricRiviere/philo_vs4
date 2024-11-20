@@ -59,8 +59,19 @@ void	precise_usleep(long ms)
 		usleep(100);
 }
 
-void	wait_all_threads(t_table *table)
+bool	is_dead(t_philo *philo)
 {
-	while(!get_bool(&table->table_mtx, &table->all_thr_ready))
-		;
+	long	elapsed;
+	long	now;
+	long	last_meal;
+
+	last_meal = philo->lm_t;
+	now = gettime();
+	elapsed = now - last_meal;
+	if (elapsed > philo->table->tto_die)
+	{
+		set_bool(&philo->philo_mtx, &philo->dead, true);
+		return (1);
+	}
+	return (0);
 }

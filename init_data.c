@@ -1,37 +1,12 @@
 #include "philo.h"
-/*
-static void	*simulation(void *data)
-{
-	t_philo *philo;
 
-	philo = (t_philo *)data;
-	while (1)
-	{
-		//Take forks & eat
-		pthread_mutex_lock(philo->first_fork);
-		print_status(philo, "has taken a fork");
-		pthread_mutex_lock(philo->second_fork);
-		print_status(philo, "has taken a fork");
-		philo->meals++;
-		print_status(philo, "is eating");
-		precise_usleep(&philo->table->tto_eat);
-		pthread_mutex_unlock(philo->first_fork);
-		pthread_mutex_unlock(philo->second_fork);
-		//Sleep
-		print_status(philo, "is sleeping");
-		precise_usleep(&philo->table->tto_sleep);
-		//Think
-		print_status(philo, "is thinking");
-	}
-}
-*/
 static void	init_forks(t_philo *philo, t_fork *forks)
 {
 	int	philo_nbr;
 
 	philo_nbr = philo->table->philo_nbr;
-	philo->first_fork = &forks[(philo->id) % philo_nbr];
 	philo->second_fork = &forks[philo->id - 1];
+	philo->first_fork = &forks[(philo->id) % philo_nbr];
 	if ((philo->id % 2) == 0)
 	{
 		philo->first_fork = &forks[philo->id - 1];
@@ -51,6 +26,7 @@ static void	init_philo(t_table *table)
 		philo->id = i + 1;
 		philo->meals = 0;
 		philo->full = false;
+		philo->dead = false;
 		philo->table = table;
 		pthread_mutex_init(&philo->philo_mtx, NULL);
 		init_forks(philo, table->forks);
@@ -79,6 +55,7 @@ void	init_data(t_table *table, char **argv)
 		table->forks[i].id = i;
 		i++;
 	}
+	table->all_thr_ready = false;
 	pthread_mutex_init(&table->table_mtx, NULL);
 	pthread_mutex_init(&table->print_mtx, NULL);
 	init_philo(table);

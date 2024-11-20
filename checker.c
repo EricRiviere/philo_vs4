@@ -19,8 +19,12 @@ long	ft_atol(const char *str)
 				sign = -1;
 			i++;
 		}
+		if (!(str[i] >= '0' && str[i] <= '9'))
+			return (0);
 		while (str[i] >= '0' && str[i] <= '9')
 			num = (num * 10) + (str[i++] - '0');
+		if (str[i] != '\0')
+			break ;
 	}
 	return (num * sign);
 }
@@ -30,12 +34,19 @@ static bool	is_positive_int(char *argv)
 	long	num;
 
 	num = ft_atol(argv);
-	if (num <= 0)
+	if (num <= 0 || num > INT_MAX)
 		return (0);
-	else if (num > INT_MAX)
+	return (1);
+}
+
+static bool	is_unsigned_int(char *argv)
+{
+	long	num;
+
+	num = ft_atol(argv);
+	if (num < 0 || num > INT_MAX)
 		return (0);
-	else
-		return (1);
+	return (1);
 }
 
 static bool	valid_inputs(char **argv)
@@ -45,10 +56,14 @@ static bool	valid_inputs(char **argv)
 	i = 1;
 	while (argv[i])
 	{
-		if (!is_positive_int(argv[i]) && i != 5)
+		if (i == 5 )
+		{
+			if (!is_unsigned_int(argv[i]))
+				return (0);
+		}
+		else if (!is_positive_int(argv[i]))
 			return (0);
-		else
-			i++;
+		i++;
 	}
 	return (1);
 }
@@ -57,10 +72,7 @@ bool	correct_input(int argc, char **argv)
 {
 	if (argc < 5 || argc > 6)
 		return (0);
-	else
-	{
-		if (!valid_inputs(argv))
-			return (0);
-		return (1);
-	}
+	if (!valid_inputs(argv))
+		return (0);
+	return (1);
 }
