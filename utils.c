@@ -1,3 +1,15 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   utils.c                                            :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: eriviere <eriviere@student.42barcelon      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/11/13 09:07:59 by eriviere          #+#    #+#             */
+/*   Updated: 2024/11/14 09:23:01 by eriviere         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #include "philo.h"
 
 void	error_exit(const char *error)
@@ -6,61 +18,59 @@ void	error_exit(const char *error)
 	exit(EXIT_FAILURE);
 }
 
-bool	get_long(t_mtx *mutex, long *value)
+long	gettime(t_time_code time_code)
 {
-	long	ret;
-
-	pthread_mutex_lock(mutex);
-	ret = *value;
-	pthread_mutex_unlock(mutex);
-	return (ret);
-}
-
-void	set_long(t_mtx *mutex, long *dest, long value)
-{
-	pthread_mutex_lock(mutex);
-	*dest = value;
-	pthread_mutex_unlock(mutex);
-}
-
-bool	get_bool(t_mtx *mutex, bool *value)
-{
-	bool	ret;
-
-	pthread_mutex_lock(mutex);
-	ret = *value;
-	pthread_mutex_unlock(mutex);
-	return (ret);
-}
-
-void	set_bool(t_mtx *mutex, bool *dest, bool value)
-{
-	pthread_mutex_lock(mutex);
-	*dest = value;
-	pthread_mutex_unlock(mutex);
-}
-
-long	gettime()
-{
-	long		time;
 	struct timeval	tv;
-	
-	gettimeofday(&tv, NULL);
-	time = tv.tv_sec * 1e3 + (tv.tv_usec / 1e3);
-	return (time);
+
+	if (gettimeofday(&tv, NULL))
+		error_exit("Error gettimeofday function");
+	if (time_code == SECOND)
+		return (tv.tv_sec + (tv.tv_usec / 1e6));
+	else if (time_code == MILLISECOND)
+		return (tv.tv_sec * 1e3 + (tv.tv_usec / 1e3));
+	else if (time_code == MICROSECOND)
+		return (tv.tv_sec * 1e6 + tv.tv_usec);
+	else
+		error_exit("Wrong input gettime");
+	return (12345);
 }
 
-void	precise_usleep(long ms)
+void	precise_usleep(long usec, t_table *table)
 {
 	long	start;
+	long	elapsed;
+	long	remaining;
 
-	start = gettime();
-	while (gettime() - start < ms)
-		usleep(100);
+	start = gettime(MICROSECOND);
+	while (gettime(MICROSECOND) - start < usec)
+	{
+		if (simulation_finished(table))
+			break ;
+		elapsed = gettime(MICROSECOND) - start;
+		remaining = usec - elapsed;
+		if (remaining > 1e3)
+			usleep(remaining / 2);
+		else
+		{
+			while (gettime(MICROSECOND) - start < usec)
+				;
+		}
+	}
 }
 
-void	wait_all_threads(t_table *table)
+void	clean(t_table *table)
 {
-	while(!get_bool(&table->table_mtx, &table->all_thr_ready))
-		;
+	t_philo	*philo;
+	int		i;
+
+	i = -1;
+	while (++i < table->philo_nbr)
+	{
+		philo = table->philos + i;
+		safe_mutex(&philo->philo_mutex, DESTROY);
+	}
+	safe_mutex(&table->write_mutex, DESTROY);
+	safe_mutex(&table->table_mutex, DESTROY);
+	free(table->forks);
+	free(table->philos);
 }

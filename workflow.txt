@@ -1,0 +1,1309 @@
+This workflow is to explain the philosophers project in 42 school.
+This is the guide that I used to understand and develop this project:
+https://medium.com/@jalal92/the-dining-philosophers-7157cc05315
+The point of this project is to udnerstand the pthread.h library and how it works, you can
+find a detailed explaination here: https://pubs.opengroup.org/onlinepubs/7908799/xsh/pthread.h.html
+I'll breafly explain each function used when needed.
+
+I'll try to explain it as clear as posible.
+The idea here is to follow the program workflow and explain every function/structure needed when
+it apears on the flow.
+
+Starting from the entry point in our program, main.c which contains only the main function:
+
+-MAIN.C:
+
+We declare a type  t_table with the name table. 
+This will be the table in which the philosophers will be eating, if we go to the philo.h doc, we
+can see how the type structure is defined:
+Before explaining the structure, its meaningfull to mention that since we'll have inside the
+table structure a pointer to a philo (thread), we need to have the t_philo struct defined before the
+t_table, and since the philosopher has a pointer to the table, before defining t_philo struct, we
+need to include the next line:
+
+typedef struct s_table	t_table;
+
+*This is called "forward declaration" and is just to tell the compiler that t_table is a type name
+that corresponds to an structure s_table that is not defined yet.
+
+--------------------------------------------
+
+struct	s_table
+{
+	long		philo_nbr; -->number of philosophers that we'll recieve from program args
+	long		time_to_die; --> time a philosopher can stay without eating (from prog args also)
+	long		time_to_eat; --> time a philosopher spends for eating (from prog args also)
+	long		time_to_sleep; --> time a philosopher spends for sleeping (from prog args also)
+	long		nbr_limit_meals; --> number of meals for a philo to be full (optional from p. args)
+	long		start_simulation; --> timestamp of when the simulation begins
+	bool		end_simulation;	--> boolean to control end of simulation
+	bool		all_threads_ready; --> boolean to synchronize all philo threats
+	long		threads_running_num; --> to control if all philo threads are running
+	pthread_t	monitor; --> thread to monitor all threads
+	t_mtx		table_mutex; --> mutex to control the table
+	t_mtx		write_mutex; --> mutex to write philosophers status (eating, sleeping, etc)
+	t_fork		*forks; --> pointer to forks array
+	t_philo		*philos; --> pointer to philosophers array
+};
+
+--------------------------------------------
+
+For now we can continue with this breef explaination of the table structure.
+
+Next step on main function is to control the number of arguments.
+Since the subject requires us to accept the next format:
+
+"./philo 5 800 200 200 [5]"
+
+./philo --> name of program
+5 --> number of philosophers (threads)
+800 --> time to die (in milliseconds)
+200 --> time to eat (in milliseconds)
+200 --> time to sleep (in milliseconds)
+[5] --> optional value of minimum meals for a philosopher to be full (AKA end the simulation
+		if all philosophers are full)
+
+We need to control the number of arguments we recieve.
+If the number of arguments is not 5 or 6, we'r going to call the error_exit function (utils.c):
+
+----------------------------------------------
+
+void	error_exit(const char *error)
+{
+	printf("%s\n", error);
+	exit(EXIT_FAILURE);
+}
+
+---------------------------------------------
+
+*This function recieves a string error, print it with printf and exits the program with EXIT_FAILURE
+code. This is why we need to include in our philo.h <stdio.h>, <stdlib.h>.
+
+If the program recieves the correct input numbers (5 or 6), we'll proceed with the main program
+fases:
+
+1 - Parsing the inputs recieved --> parse_input(&table, argv)
+2 - Initialize data needed to run the program --> data_init(&table)
+3 - Start dinner simulation --> dinner_start(&table)
+4 - Clean all --> clean(&table)
+
+---------------------------------------------
+
+	if (argc == 5 || argc == 6)
+	{
+		parse_input(&table, argv);
+		data_init(&table);
+		dinner_start(&table);
+		clean(&table);
+	}
+
+---------------------------------------------
+
+*The motive to declare the table structure before controling the number of arguments recieved &
+to have the structure table (so complete) is to be able to simpliphy the arguments that we'll
+need to pass to those functions that manage the main program.
+
+1 - PARSING
+
+PARSE_INPUT (parse.c):
+
+---------------------------------------------
+
+void	parse_input(t_table *table, char **argv)
+{
+	table->philo_nbr = ft_atol(argv[1]);
+	table->time_to_die = ft_atol(argv[2]) * 1e3;
+	table->time_to_eat = ft_atol(argv[3]) * 1e3;
+	table->time_to_sleep = ft_atol(argv[4]) * 1e3; //1e3 multiplies for 1000
+	if (table->time_to_die < 6e4
+			|| table->time_to_eat < 6e4
+			|| table->time_to_sleep < 6e4) //6e4 equals to 60 milliseconds, minimum by subject
+			error_exit("Wrong argument, min value 60ms.");
+	if (argv[5])
+		table->nbr_limit_meals = ft_atol(argv[5]);
+	else
+		table->nbr_limit_meals = -1;
+}
+
+-------------------------------------------------
+
+*This function calls the ft_atol function and converts the milliseconds recieved to microseconds.
+Also, it sets the table structure variables to the recieved values.
+To control if the values recieved ara correct, we'll do it inside the ft_atol function.
+If you noticed, all al "numeric" variables inside the table structure are long & bool, and this is 
+because in the program we'll use some get/set functions and is easier to use just two type of data.
+
+For this task we're going to need 4 functions:
+
+-------------------------------------------------
+
+static inline bool is_space(char c)
+{
+	return ((c >= 9 && c <= 13) || c == 32);
+}
+
+-------------------------------------------------
+
+static inline bool is_digit(char c)
+{
+	return (c >= '0' && c <= '9');
+}
+
+-------------------------------------------------
+These two static inline functions are just to be used in the valid_input function, and are simple
+one line codes that check if a character is a space or a digit.
+We declare them as static because we're only using it inside parse.c file, and as inline because
+this way, the compiler will just insert them inside the function in which are called and optimize
+our program performance (if we use inline in a function not fitted for that purpose, the compiler
+can decide not to make it inline).
+
+-------------------------------------------------
+
+static const char	*valid_input(const char *str)
+{
+	int			len;
+	const char	*number;
+
+	len = 0;
+	while (is_space(*str))
+		++str;
+	if (*str == '+')
+		++str;
+	else if (*str == '-')
+		error_exit("Wrong argument, just positive values.");
+	if (!is_digit(*str))
+		error_exit("Wrong argument, just digits.");
+	number = str;
+	while (is_digit(*str++))
+		++len;
+	if (len > 10)
+		error_exit("Wrong argument, just integers values.");
+	return (number);
+}
+
+-------------------------------------------------
+*This function checks if the input recieved as arguments of our program are valid. For that purpose
+we declare an int len (to track the len of the number recieved and discard longer than INT values),
+and a char number to save the "non negative and digit" value, and be able to work with pointers.
+
+First, we check if we recieve a number with spaces --> "   123" will pass.
+Then we check for symbol --> " +123" pass but "  -123" NO (we can't have negative times to...)
+Check if at least the first value is a digit --> "  +123" pass but "   +e123" NO
+While is a digit we increase len & str --> "  +12ef" has a len of 2
+Save inside number the correct string --> "  +12ef" saves "12" inside number
+If len > 10 we exit (INT_MAX is 2147483647 that has a len = 10)
+Return the number saved --> "  +12ef" will return the string "12"
+
+------------------------------------------------
+
+static long	ft_atol(const char *str)
+{
+	long	num;
+
+	num = 0;
+	str = valid_input(str);
+	while (is_digit(*str))
+		num = (num * 10) + (*str++ - 48);
+	if (num > INT_MAX)
+		error_exit("Wrong argument, just integers values.");
+	return (num);
+}
+
+-------------------------------------------------
+*This function declares a long num initialized at 0, then we equal str to the result recieved from
+the function valid_input (because we want just to keep the valid part of the string. Fe: " +12ef" 
+we want to manage just 12).
+Then we convert to int each char by multipling it by 10 and adding the value - the value of 0 (48).
+If the number obtained is bigger than an INT_MAX we exit (Fe: we can recieve 2147483648, that
+would go through the valid_input function -its len = 10- but is bigger than the INT_MAX value).
+
+-------------------------------------------------
+
+*Going back to our parse_input function, if everything is correct, we make another case control.
+In case we recieve an argument for ttd tte tts smaller than 60ms we're going to exit.
+Also, we're going to set the number of meals to be full (if recieved, if not we set it as -1 to use
+it as a flag).
+
+-------------------------------------------------
+
+2 - INITIALIZE DATA
+
+DATA_INIT (init.c):
+-------------------------------------------------
+
+void	data_init(t_table *table)
+{
+	int	i;
+
+	i = -1;
+	table->end_simulation = false;
+	table->all_threads_ready = false;
+	table->threads_running_num = 0;
+	table->philos = safe_malloc(sizeof(t_philo) * table->philo_nbr);
+	table->forks = safe_malloc(sizeof(t_fork) * table->philo_nbr);
+	safe_mutex(&table->table_mutex, INIT);
+	safe_mutex(&table->write_mutex, INIT);
+	while (++i < table->philo_nbr)
+	{
+		safe_mutex(&table->forks[i].fork, INIT);
+		table->forks[i].fork_id = i;
+	}
+	philo_init(table);
+}
+
+-------------------------------------------------
+*This function initialize the necessary data for the dinner simulation.
+It declares an in "i" that will be used to iterate through table->philo_nbr variable to create
+the forks needed for the simulation (it is initialized at -1 to reduce function lines).
+It sets the "end_simulation" flag inside table at false (not ended), the "all_threads_ready" flag
+also to false, and the "threads_running_num" to 0 (at this point there are no threats running).
+then allocates memory for both philosophers and fork arrays inside the table.
+
+For this porpose we use the safe_malloc function (SAFE_FUNCTIONS.C):
+-------------------------------------------------
+
+void	*safe_malloc(size_t bytes)
+{
+	void	*ret;
+
+	ret = malloc(bytes);
+	if (ret == NULL)
+		error_exit("Error with malloc");
+	return (ret);
+}
+
+-------------------------------------------------
+*This function is just to protect malloc in case of failling the memory allocation.
+It returns the void pointer to the allocated memory for the purpose to be used as a normal
+malloc (but protected).
+
+-------------------------------------------------
+*After allocating the memory for the array of philosophers & forks, we call the safe_mutex function.
+
+I'll explain here the mutex functions and the safe version. But first lets understand threads.
+
+Threads are units of execution within a program that run independently, allowing tasks to be 
+performed concurrently (at the same time). This enables better use of CPU resources, parallel 
+execution, and can improve performance, especially in multi-core systems.
+In the article that I shared at the begining there is another article linked that explains threads
+(https://medium.com/@jalal92/lets-discuss-threads-grab-a-coffee-ad4d4ebf7181).
+
+For this project we used:
+
+	-Create (pthread_create):
+
+		Used to create a new thread, allowing a function to run concurrently with the main program.
+		It takes parameters like the thread ID, attributes, the function to be executed, and its 
+		arguments.
+
+	-Join (pthread_join):
+
+		Waits for a specific thread to finish its execution. This ensures that the main thread or 
+		other threads can wait for a thread to complete before continuing.
+
+	-Destroy (pthread_mutex_destroy):
+
+		Used to free resources allocated for a mutex (mutual exclusion lock). It's called after the 
+		mutex is no longer needed to prevent memory leaks.
+
+	-Init (pthread_mutex_init):
+
+		Initializes a mutex to be used for protecting shared resources. It sets up the mutex to be 
+		used in lock and unlock operations.
+
+	-Lock (pthread_mutex_lock):
+
+		Acquires the mutex lock, preventing other threads from accessing the shared resource until 
+		it is unlocked. This ensures thread safety when multiple threads need to access shared data.
+
+	-Unlock (pthread_mutex_unlock):
+
+		Releases the mutex lock, allowing other threads to access the shared resource. It signals 
+		that the critical section is now free for use by other threads.
+
+*Now that we have a basic idea of what threads are and the functions that we're using on this
+program, lets explain the safe_mutex & safe_thread function (this last one not used now but since
+is the same we explain it now):
+-------------------------------------------------
+
+//Mutex error function
+static void	error_mutex(int status, t_opcode opcode)
+{
+	if (status == 0)
+		return ;
+	if (status == EINVAL && (opcode == LOCK || opcode == UNLOCK || opcode == DESTROY))
+		error_exit("The value specified by mutex is invalid.");
+	else if (status == EINVAL && opcode == INIT)
+		error_exit("The value specified by attr is invalid.");
+	else if (status == EDEADLK)
+		error_exit("A deadlock would occur if the thread blocked waiting for mutex.");
+	else if (status == EPERM)
+		error_exit("The current thread does not hold a lock on mutex.");
+	else if (status == ENOMEM)
+		error_exit("The process cannot allocate enough memory to create another mutex.");
+	else if (status == EBUSY)
+		error_exit("Mutex is locked.");
+}
+
+//Protected Mutex function with mutex error returns
+void	safe_mutex(t_mtx *mutex, t_opcode opcode)
+{
+	if (opcode == LOCK)
+		error_mutex(pthread_mutex_lock(mutex), opcode);	
+	else if (opcode == UNLOCK)
+		error_mutex(pthread_mutex_unlock(mutex), opcode);
+	else if (opcode == INIT)
+		error_mutex(pthread_mutex_init(mutex, NULL), opcode);
+	else if (opcode == DESTROY)
+		error_mutex(pthread_mutex_destroy(mutex), opcode);
+	else
+		error_exit("Wrong mutex tcode\n");
+}
+
+----------------------------------------------------
+
+//Thread error function
+static	void	error_thread(int status, t_opcode opcode)
+{
+	if (status == 0)
+		return ;
+	if (status == EAGAIN)
+		error_exit("No necessary resources to create another thread.");
+	else if (status == EPERM)
+		error_exit("The caller does not have appropriate permission");
+	else if (status == EINVAL && opcode == CREATE)
+		error_exit("The value specified by attr is invalid.");
+	else if (status == EINVAL)
+		error_exit("The value specified by thread is not joinable.");
+	else if (status == ESRCH)
+		error_exit("No thread found with the given thread ID.");
+	else if (status == EDEADLK)
+		error_exit("A deadlock was detected or the value of thread specifies the calling thread.");
+}
+
+void	safe_thread(pthread_t *thread, void *(*foo)(void *),
+		void *data, t_opcode opcode)
+{
+	if (opcode == CREATE)
+		error_thread(pthread_create(thread, NULL, foo, data), opcode);
+	else if (opcode == JOIN)
+		error_thread(pthread_join(*thread, NULL), opcode);
+	else
+		error_exit("Wrong thread code");
+}
+
+-------------------------------------------------
+*This functions are just a way to use all the functions mentioned before in a safe maner with just
+two functions:
+
+void	safe_mutex(t_mtx *mutex, t_opcode opcode)
+	--> To call mutex related functions (INIT, LOCK, UNLOCK)
+&
+
+void	safe_thread(pthread_t *thread, void *(*foo)(void *), void *data, t_opcode opcode)
+	--> To call thread related functions (CREATE, JOIN, DESTROY)
+
+For this purpose we created an enum in philo.h that will be usefull to manage different cases:
+--------------------
+
+typedef enum	e_opcode
+{
+	LOCK,
+	UNLOCK,
+	INIT,
+	CREATE,
+	DESTROY,
+	JOIN,
+}				t_opcode;
+
+--------------------
+*Since the only difference between safe_mutex & safe_thread is that mutex functions recieve less
+args that thread functions, I'll explain one. 
+The static error_thread & static error_mutex functions are just junctions to manage the possible
+error response if a thread_t function fails.
+
+In the case of safe_mutex:
+
+		void	safe_mutex(t_mtx *mutex, t_opcode opcode)
+
+We created in the philo.h a shorter name for this kind of functions:
+
+		typedef	pthread_mutex_t t_mtx;
+
+So it recieves a pthread_mutex_t (t_mtx from now), and an opcode.
+If the opcode recieved is INIT for example (to init a mutex), it calls the error_mutex function
+passing a status (both thread & mutex functions can return several error status with messages
+depending of which one we call -this is why we pass the opcode also-), and we call the original
+pthread_mutex_init function.
+Since we're controling the possible errors in case one of the function fails, and we are doing
+it returning an error message equal to the one of the original function, we can call the functions
+"SAFE_FUNCTION".
+
+-------------------------------------------------
+*Back to the data_init function, as we mentioned before, we create a mutex for the table, and
+another one to write (to lock & unlock the resouse -TABLE- before reading a value / 
+modifying a value / writing a status of the dinner simulation).
+
+	safe_mutex(&table->table_mutex, INIT);
+	safe_mutex(&table->write_mutex, INIT);
+
+After that, we loop through table philo_nbr variable to create a fork for every philosopher
+
+	while (++i < table->philo_nbr)
+	{
+		safe_mutex(&table->forks[i].fork, INIT);
+		table->forks[i].fork_id = i;
+	}
+
+Here we can introduce a new structure t_fork of our philo.h:
+-------------------------------------------------
+
+typedef struct	s_fork
+{
+	t_mtx	fork; --> mutex to lock/unlock the fork (a fork is a shared resourse)
+	int		fork_id; --> id for each fork for control
+}	t_fork;
+
+-------------------------------------------------
+*Every fork will have a mutex (forks are shared resourses that we need to lock & unlock), and
+a fork id.
+
+*After that, we call the philo_init function:
+-------------------------------------------------
+
+static void	philo_init(t_table *table)
+{
+	int		i;
+	t_philo	*philo;
+
+	i = -1;
+	while (++i < table->philo_nbr)
+	{
+		philo = table->philos + i;
+		philo->id = i + 1;
+		philo->full = false;
+		philo->meals_counter = 0;
+		philo->table = table;
+		safe_mutex(&philo->philo_mutex, INIT);
+		assign_forks(philo, table->forks, i);
+	}
+}
+
+-------------------------------------------------
+*This function initializes every philo structure with the data needed.
+
+Lets see the t_philo structure:
+-------------------------------------------------
+
+typedef struct	s_philo
+{
+	int			id; --> philosopher id for control and print
+	long		meals_counter; --> counter to control number of meals & full/not full
+	bool		full; --> full/not full boolean
+	long		last_meal_time; --> last meal timestamp to control time to die
+	t_fork		*first_fork; --> pointer to the first fork needed to eat
+	t_fork		*second_fork; --> pointer to the second fork needed to eat
+	pthread_t	thread_id; --> id for the thread of each philosopher
+	t_mtx		philo_mutex; --> mutex to lock/unlock before modifying meals_c/full/last_meal_t
+	t_table		*table; --> pointer to the table
+}				t_philo;
+
+-------------------------------------------------
+
+*Back to philo_init function, we declare an initialize an int "i" to iterate through table 
+philo_nbr variable, and a pointer philo to manage each philo inside the table:
+
+philo = table->philos + i; --> This is pointer arithmetic
+philo = &table->philos[i]; --> Is the same
+-->We want to set a pointer to the philo in position "i" inside the philos array<--
+
+Once this pointer is setted, we can initialize each of its variables:
+		
+		philo->id = i + 1; --> the ids of philos start at 1
+		philo->full = false; --> each philo starts as not full
+		philo->meals_counter = 0; --> starts with 0 meals
+		philo->table = table; --> creates the pointer to the table
+		safe_mutex(&philo->philo_mutex, INIT); --> creates the mutex to read/modify philo info
+		assign_forks(philo, table->forks, i); --> assign forks to each philosopher
+
+-------------------------------------------------
+*Here we enter in a new concept within threads, RACE CONDITIONS and DEADLOCKS, in the article that
+I shared at the begining you can find useful information about that also 
+(https://medium.com/@jalal92/deadlocks-b059eed3e6c3).
+
+	-Race conditions:
+		Happen when two or more threads access shared data at the same time, and the outcome 
+		depends on the order of execution. This can lead to unpredictable and erroneous results, 
+		as the threads are "racing" to use the data without proper synchronization.
+
+	-Deadlocks:
+		Occur when two or more threads are waiting for each other to release resources, causing all
+		of them to be stuck indefinitely. This happens when threads hold some resources while 
+		trying to acquire others already locked by another thread, creating a cycle of dependency.
+
+In the context of our program, a race condition will happen wen each thread (philosopher), access
+shared data (forks) at the same time, and the outcome that depends is if one eats/sleeps/thinks or
+dies.
+
+A deadlock can occur when philosophers took a fork (or not), need two forks to eat, and the forks
+accessible (in our program each philosopher can just access its right or left fork) are already
+locked by another philosopher.
+
+So we need avoid deadlocks and control race conditions.
+
+For the first purpose (assigning forks and avoid deadlock) we use the assign_forks function:
+-------------------------------------------------
+
+static void	assign_forks(t_philo *philo, t_fork *forks, int philo_position)
+{
+	int	philo_nbr;
+
+	philo_nbr = philo->table->philo_nbr;
+	philo->first_fork = &forks[(philo_position + 1) % philo_nbr];
+	philo->second_fork = &forks[philo_position];
+	if ((philo->id % 2) == 0)
+	{
+		philo->first_fork = &forks[philo_position];
+		philo->second_fork = &forks[(philo_position + 1) % philo_nbr];
+	}
+}
+
+-------------------------------------------------
+*This function recovers the philo_nbr value from table and stores it in a new declared int, and
+then asigns forks differently if the philosopher id is odd or even.
+
+Since we sended the index of the philosopher in the philo_init function, we know that each philo
+right fork will be at the philo_position (different from philo_id), and the left fork will be in
+the ((philo_position + 1) % philo_nbr).
+
+Lets see a case to make it more clear;
+We have 5 philosophers and 5 forks:
+
+philosophers---> [1][2][3][4][5]	|| 	[5][4][3][2][1][2][3][4]  *IF WE REPRESENT IT AS A
+forks -----------> [0][1][2][3][4]	|| [0][4][3][2][1][0][1][2][3] CIRCULAR TABLE*
+
+Since we have a "round table", on the left of philosopher 5 we have philosopher 1
+For the same reason, at the left of fork 4 we have fork 0
+
+If we want to know the right fork of each philosopher, its easi because we can use philo_position
+(position of philosopher in the array) or philo_id -1.
+
+But if we want to know the left fork, its easy for everyone except the last one. For everyone we
+could use philo_id, but once we get to the last (philosopher[5] in this case), the fork on its
+left is not 5, but 0.
+
+for philo number 2 -->(2 % 5) = 2 --> DO NOT CONFUSE WITH (4 / 5) !!
+for philo number 5 -->(5 % 5) = 0 --> DO NOT CONFUSE WITH (6 / 5) !!
+
+**After all this explaination, this is just to stablish that if you are an odd philosopher you will
+first grab the fork on your left and then the one on your right.
+On the other hand, if you are an even philosopher, you'll first grab the fork on your right and then
+the one on your left.
+
+-------------------------------------------------
+
+3 - Start dinner simmulation
+
+dinner_start() SIMULATION.C
+
+This function is the one that starts the simulation, so in this one we'll manage everything apart
+from point 4 (cleaning):
+-------------------------------------------------
+
+void	dinner_start(t_table *table)
+{
+	int	i;
+
+	i = -1;
+	if (table->nbr_limit_meals == 0)
+		return ;
+	else if (table->philo_nbr == 1)
+		safe_thread(&table->philos[0].thread_id, lone_philo, &table->philos[0], CREATE);
+	else
+	{
+		while (++i < table->philo_nbr)
+			safe_thread(&table->philos[i].thread_id, dinner_simulation, &table->philos[i], CREATE);
+	}
+	safe_thread(&table->monitor, monitor_dinner, table, CREATE);
+	table->start_simulation = gettime(MILLISECOND);
+	set_bool(&table->table_mutex, &table->all_threads_ready, true);
+	i = -1;
+	while (++i < table->philo_nbr)
+		safe_thread(&table->philos[i].thread_id, NULL, NULL, JOIN);
+	set_bool(&table->table_mutex, &table->end_simulation, true);
+	safe_thread(&table->monitor, NULL, NULL, JOIN);
+}
+
+-------------------------------------------------
+*This function declares & initialize an int "i" to -1 to iterate through the number of philosophers.
+If the variable nbr_limit_meals (argv[5]) has been stablished as 0 the simulation didn't event start
+and returns to clean.
+
+If the number of philosophers is 1 (since by subject, there is 1 fork for each philo & to eat a
+philo needs 2 forks), we'll create a thread calling the lone_philo function and passing the philo
+as data:
+
+	safe_thread(&table->philos[0].thread_id, lone_philo, &table->philos[0], CREATE);
+
+*Since this is an special case that will be better understood once we know all the simulation
+function and needs, we'll see it at the end, before seeing the cleaning part.
+
+If we don't end because of 0 meals needed or this "one philosoper" special case, we iterate
+through the number of philosophers and create a thread for each one, passing the thread_id as
+thread, dinner_simulation as function and the philo data:
+
+	else
+	{
+		while (++i < table->philo_nbr)
+			safe_thread(&table->philos[i].thread_id, dinner_simulation, &table->philos[i], CREATE);
+	}
+
+-------------------------------------------------
+
+Let's see the dinner_simulation function, the one which will manage every stage in our simulation.
+If we look at the subject of the project we know that:
+	
+	-While a philosopher is eating, thinking or sleeping he can't do anything else.
+	-When a philo finish eating he leaves the two forks needed to eat and starts to sleep.
+	-When a philo wakes up has to start thinking.
+	-The simulation ends when a philo dies due to starvation.
+
+This is the function dinner_simulation (the one that will be called in each thread):
+-------------------------------------------------
+
+void	*dinner_simulation(void *data)
+{
+	t_philo	*philo;
+
+	philo = (t_philo *)data;
+	wait_all_threads(philo->table);
+	set_long(&philo->philo_mutex, &philo->last_meal_time, gettime(MILLISECOND));
+	increase_long(&philo->table->table_mutex, &philo->table->threads_running_num);
+	desynchronize_philos(philo);
+	while (!simulation_finished(philo->table))
+	{
+		if (philo->full)
+			break;
+		eat(philo);
+		write_status(SLEEPING, philo, DEBUG_MODE);
+		precise_usleep(philo->table->time_to_sleep, philo->table);
+		thinking(philo, false);
+	}
+	return (NULL);
+}
+
+-------------------------------------------------
+*We'll go step by step because this one calls to so many different functions that also call to
+other functions.
+
+----
+	t_philo	*philo;
+
+	philo = (t_philo *)data;
+----
+This part here is necessary because since the prototype to create a thread is:
+
+	int pthread_create(pthread_t *thread, pthread_attr_t *attr,
+                   void *(*start_routine) (void *arg), void *arg);
+
+	*The function called mus be -->  void *(*start_routine) (void *arg)
+	*In our case --> void	*dinner_simulation(void *data)
+
+And in safe_thread we call it like this:
+
+	pthread_create(thread, NULL, foo, data)
+
+In dinner_start we passed these arguments:
+
+	(&table->philos[i].thread_id, dinner_simulation, &table->philos[i])
+
+We need to recover that data that we pass as a void pointer (&table->philos[i]) and use the
+data inside:
+
+	1- Create a pointer to a t_philo structure (*philo)
+	2- We cast data to t_philo * using --> (t_philo *)data;
+
+Now philo points to the original t_philo structure passed as arg, allowing us to acces & use
+data within philo.
+
+*Next step is call to wait_all_threads function --> wait_all_threads(philo->table);
+-------------------------------------------------
+
+void	wait_all_threads(t_table *table)
+{
+	while (!get_bool(&table->table_mutex, &table->all_threads_ready))
+		;
+}
+
+-------------------------------------------------
+*This function inside SYNCRO_UTILS.C file is to wait until all threads are ready.
+It loops indefinetly until the table variable all_threads_ready is true.
+
+To Fully understand this function, we need to navigate to the GETTERS_SETTERS.C file:
+-------------------------------------------------------------------------------------------
+
+//BOOLEANS//
+bool	get_bool(t_mtx *mutex, bool *value)
+{
+	bool	ret;
+
+	safe_mutex(mutex, LOCK);
+	ret = *value;
+	safe_mutex(mutex, UNLOCK);
+	return (ret);
+}
+
+-----
+
+void	set_bool(t_mtx *mutex, bool *dest, bool value)
+{
+	safe_mutex(mutex, LOCK);
+	*dest = value;
+	safe_mutex(mutex, UNLOCK);
+}
+
+--------------
+
+//LONGS//
+long	get_long(t_mtx *mutex, long *value)
+{
+	long	ret;
+
+	safe_mutex(mutex, LOCK);
+	ret = *value;
+	safe_mutex(mutex, UNLOCK);
+	return (ret);
+}
+
+-----
+
+void	set_long(t_mtx *mutex, long *dest, long value)
+{
+	safe_mutex(mutex, LOCK);
+	*dest = value;
+	safe_mutex(mutex, UNLOCK);
+}
+
+//SIMILATION FINISHED//
+bool	simulation_finished(t_table *table)
+{
+	return (get_bool(&table->table_mutex, &table->end_simulation));
+}
+
+-------------------------------------------------------------------------------------------
+*This file is copied entirely because the prototypes have few differences and can be explained 
+toguether.
+
+Basically this functions are to get a value and set a value. The last one is a usefull one to
+know if the variable end_simulation is true or false (know if the similation has finished).
+
+GET data:
+
+	-bool	get_bool(t_mtx *mutex, bool *value)
+	-long	get_long(t_mtx *mutex, long *value)
+
+	1- Lock the resourse
+	2- Get the value
+	3- Unlock the resouse
+	4- Return the value
+
+SET data:
+
+	-void	set_bool(t_mtx *mutex, bool *dest, bool value)
+	-void	set_long(t_mtx *mutex, long *dest, long value)
+
+	1- Lock the resourse
+	2- Set the dest value as the value recieved
+	3- Unlock the resourse
+
+*The simulation_finished function just returns ture/false if the end_simulation variable inside
+the table is true or false (no need to lock & unlock because its end_simulation is just modifyed
+after all threads are joined).
+
+-------------------------------------------------
+
+*Going back to dinner_simulation function, we use the set_long function to set last_meal_time
+variable inside each philo using the gettime function inside UTILS.C file:
+-------------------------------------------------
+
+long	gettime(t_time_code time_code)
+{
+	struct timeval	tv;
+	if(gettimeofday(&tv, NULL))
+		error_exit("Error gettimeofday function");
+	else if (time_code == MILLISECOND)
+		return (tv.tv_sec * 1e3 + (tv.tv_usec / 1e3));
+	else if (time_code == MICROSECOND)
+		return (tv.tv_sec * 1e6 + tv.tv_usec);
+	else
+		error_exit("Wrong input gettime");
+	return (12345);
+}
+
+-------------------------------------------------
+*This function uses gettimeofday function from <sys/time.h> header with this prototype:
+
+	int gettimeofday(struct timeval *tv, struct timezone *tz);
+
+	*The timeval struct is:
+
+		struct timeval 
+		{
+  			 time_t      tv_sec;     /* seconds */
+    		 suseconds_t tv_usec;    /* microseconds */
+		};
+
+Since we'll need to work both in milliseconds & microseconds on the future, the next enum type
+is defined on the philo.h file:
+
+	typedef enum	e_time_code
+	{
+		MILLISECOND,
+		MICROSECOND,
+	}				t_time_code;
+
+We need this function to protect the gettimeofday function in case of failure and also because the
+gettime function recieves a t_time_code to know if we want it to return the time in milliseconds
+or in microseconds. (it needs an ending return(long) to not recieve a warning on compiling).
+
+-------------------------------------------------
+
+*Going back to our dinner_simulation function, we set the last_meal_time variable in each philo
+in milliseconds with:
+
+	set_long(&philo->philo_mutex, &philo->last_meal_time, gettime(MILLISECOND));
+
+*After this, we increase the threads_running_num by one with the increase_long function. With
+this increase, eventually we'll know if all threads are running.
+-------------------------------------------------
+
+void	increase_long(t_mtx *mutex, long *value)
+{
+	safe_mutex(mutex, LOCK);
+	(*value)++;
+	safe_mutex(mutex, UNLOCK);
+}
+
+-------------------------------------------------
+*This function just locks a resourse, increase a value & unlock the resourse.
+
+*After increasing the vaule, we'll call the desyncrhonize_philos function, that as its name says
+it desyinchronize the philosophers forcing some of them to think for an ammount of time:
+-------------------------------------------------
+
+void	desynchronize_philos(t_philo *philo)
+{
+	if (philo->table->philo_nbr % 2 == 0)
+	{
+		if (philo->id % 2 == 0)
+			precise_usleep(3e4, philo->table);
+	}
+	else
+	{
+		if (philo->id % 2)
+			thinking(philo, true);
+	}
+}
+
+-------------------------------------------------
+*This function, works different if the number of philosophers is odd or even. This is because if
+the number of philos is odd, it's possible that after eating and sleeping, a philosopher is faster
+than another philosopher that has been thinking for 1 cycle & this may cause unfair deaths.
+So in case of even number of philos we just use precise_usleep function to make the even philos
+to sleep for half the minimum time (3e4 is 1/2 of 60ms --> 60000usec).
+
+*The precise_usleep function is necessary for scenarios where you need a more accurate sleep 
+mechanism than what usleep() or other built-in sleep functions provide. Standard sleep functions 
+may not be precise due to system-level task scheduling and other processes that can cause delays
+or inaccuracies. This is especially important in time-sensitive applications like this program.
+-------------------------------------------------
+
+void	precise_usleep(long usec, t_table *table)
+{
+	long	start;
+	long	elapsed;
+	long	remaining;
+
+	start = gettime(MICROSECOND);
+	while (gettime(MICROSECOND) - start < usec)
+	{
+		if (simulation_finished(table))
+			break;
+		elapsed = gettime(MICROSECOND) - start;
+		remaining = usec - elapsed;
+
+		if (remaining > 1e3)
+			usleep(remaining / 2);
+		else
+		{
+			while (gettime(MICROSECOND) - start < usec)
+				;
+		}
+	}
+}
+
+-------------------------------------------------
+*The precise_usleep function refines this by breaking down the wait time and handling the last 
+microseconds manually.
+
+	Responsive Simulation: 
+	In a simulation with multiple threads, accurate timing helps maintain synchronization and 
+	realistic timing between events.
+
+	Adaptivity: 
+	The function adapts to the remaining sleep time, choosing between usleep() and busy-waiting 
+	based on the duration.
+
+This approach strikes a balance between minimizing CPU usage (through usleep()) and ensuring 
+precise sleep intervals (with the final busy-wait loop).
+
+So basically it divides the time to sleep by two based on a time to sleep recieved (usec), and
+it keeps doing that until the last microseconds (100usec or 1e3) where it just waits to sleep
+for a more precise sleeping time.
+
+-------------------------------------------------
+
+*Back to desynchronize_philos function, if the number of philosophers is odd, if the philo id
+is also odd, we call the thinking function passing a pointer to philo & true:
+-------------------------------------------------
+
+void	thinking(t_philo *philo, bool pre_simulation)
+{
+	long	t_eat;
+	long	t_sleep;
+	long	t_think;
+
+	if (!pre_simulation)
+		write_status(THINKING, philo, DEBUG_MODE);
+	if (philo->table->philo_nbr % 2 == 0)
+		return;
+	t_eat = philo->table->time_to_eat;
+	t_sleep = philo->table->time_to_sleep;
+	t_think = t_eat * 2 - t_sleep;
+	if (t_think < 0)
+		t_think = 0;
+	precise_usleep(t_think * 0.42, philo->table);
+}
+
+-------------------------------------------------
+*This is because of what we explained earlier, in odd number of philos simulations, we want to
+put to sleep some philos to desynchronize them and force them to think.
+
+In the function, the pre_simulation boolean is to know if we are in a pre simulation situation 
+(AKA forcing a philosopher to think to desynchronize) or inside the simulation.
+This is why we just call the write_status function if we're not in pre simulation.
+
+If the number of philos is even, we return (the system is fair & we don't need to control
+thinking time for it to be fare).
+
+Else, we calculate time to think by multiplying tteat * 2 - ttsleep. This gives us the available
+time to think (given the parameters recieved as program arguments).
+If time to think is negative (meaning ttsleep is > double of tteat) ttthink will be 0 so we can't
+make the system more fair.
+But if we have time to think, we force to sleep for < half of the time to think.
+
+If you remember, in desynchronize_philos function, this is just applied to philos with odd id, so
+this will ensure that no philo eats 2 times on a row while another thinks 2 times on a row.
+
+-------------------------------------------------
+
+*Now back to the dinner_simulation function, we enter in the MAIN LOOP, which goes on until the
+simulation has not finished (this is why simulation_finished function is very handy):
+-------------------------------------------------
+
+	while (!simulation_finished(philo->table))
+	{
+		if (philo->full)
+			break;
+		eat(philo);
+		write_status(SLEEPING, philo, DEBUG_MODE);
+		precise_usleep(philo->table->time_to_sleep, philo->table);
+		thinking(philo, false);
+	}
+
+-------------------------------------------------
+*This loop, checks if the philosopher is full (if so breaks & we'd go back to dinner_start funnc).
+
+And then:
+
+	1- eat --> call to eat() function
+	2- sleep --> call to write_status() function + precice_usleep() function
+	3- think --> call to thinking() function (this time with false since we're inside simulation)
+
+*Before going to the eat function (the most complicated in terms of resourse managing), lets see
+the write_status function:
+-------------------------------------------------
+
+void	write_status(t_philo_status status, t_philo *philo, bool debug)
+{
+	long	elapsed;
+
+	elapsed = gettime(MILLISECOND) - philo->table->start_simulation;
+	if (philo->full)
+		return ;
+	safe_mutex(&philo->table->write_mutex, LOCK);
+	if (debug)
+		write_status_debug(status, philo, elapsed);
+	else
+	{
+		if ((status == TAKE_FIRST_FORK || status == TAKE_SECOND_FORK)
+			&& !simulation_finished(philo->table))
+			printf("%-6ld %d has taken a fork\n", elapsed, philo->id);
+		else if  (status == EATING && !simulation_finished(philo->table))
+			printf("%-6ld %d is eating\n", elapsed, philo->id);
+		else if  (status == SLEEPING && !simulation_finished(philo->table))
+			printf("%-6ld %d is sleeping\n", elapsed, philo->id);
+		else if  (status == THINKING && !simulation_finished(philo->table))
+			printf("%-6ld %d is thinking\n", elapsed, philo->id);
+		else if  (status == DIED)
+			printf("%-6ld %d died\n", elapsed, philo->id);
+	}
+	safe_mutex(&philo->table->write_mutex, UNLOCK);
+}
+
+-------------------------------------------------
+*This function is the one that will write all the messages in every status change for every philo.
+It recieves a t_philo_status (we'll see the enum on philo.h), a pointer to the philo, and a bool
+debug to know if we're in debug mode or in project presentation mode.
+
+We declare & initialize a long named elapsed that its calculated by substractinc the 
+start_simulation variable (already in the table) to a new timestamp obtained with gettime in mills.
+
+If the philo is full we return (meaning we don't want to write anything else once is full).
+
+We lock the write_mutex of the table so anything changes while checking & writing a status.
+
+If the debug bool is true (or 1 in our philo.h macro called DEBUG_MODE) we're going to call
+write_status_debug function. I won't explain that one because is the same as the main one but
+more detailed prints for debugging.
+
+The enum typedef in our philo.h for this function is:
+
+------
+
+typedef enum	e_status
+{
+	EATING,
+	SLEEPING,
+	THINKING,
+	TAKE_FIRST_FORK,
+	TAKE_SECOND_FORK,
+	DIED,
+}				t_philo_status;
+
+------
+
+The function is selfexplainatory, but basicaly:
+
+If, the status recieved is TAKE_FIRST_FORK or TAKE_SECOND_FORK & simulation has not finished:
+	-Print a timestamp (%-6ld)that philo[i] has taken a fork
+	
+	----
+	**%-dld EXPLAINATION**
+	% -->initiates format sequence
+	- -->indicates that output should be left aligned
+	6 -->especifies the num of chars (if not long it will fill with spaces)
+	l -->long type
+	d -->decimal number (int)
+	----
+If the status is EATING & simulation has not finished:
+	-Print a timestamp (%-6ld)that philo[i] is eating
+
+All cases are like this but the DIED status, in which we don't check if the simulation has finished
+because before calling write_status with DIED status, we set the end_simulation variable to true.
+
+-------------------------------------------------
+
+*Ok, lets go with the eat() function:
+-------------------------------------------------
+
+static void	eat(t_philo *philo)
+{
+	safe_mutex(&philo->first_fork->fork, LOCK);
+	write_status(TAKE_FIRST_FORK, philo, DEBUG_MODE);
+	safe_mutex(&philo->second_fork->fork, LOCK);
+	write_status(TAKE_SECOND_FORK, philo, DEBUG_MODE);
+	set_long(&philo->philo_mutex, &philo->last_meal_time, gettime(MILLISECOND));
+	philo->meals_counter++;
+	write_status(EATING, philo, DEBUG_MODE);
+	precise_usleep(philo->table->time_to_eat, philo->table);
+	if (philo->table->nbr_limit_meals > 0 && philo->meals_counter == philo->table->nbr_limit_meals)
+		set_bool(&philo->philo_mutex, &philo->full, true);
+	safe_mutex(&philo->first_fork->fork, UNLOCK);
+	safe_mutex(&philo->second_fork->fork, UNLOCK);
+}
+
+-------------------------------------------------
+*In this function we:
+
+	1- Lock the first fork
+	2- Write that the philo has taken a fork (first fork in debug mode)
+	3- Lock the second fork
+	4- Write that the philo has taken a fork (second fork in debug mode)
+	5- Set the last_meal_time with gettime
+	6- Increase meals_counter by 1
+	7- Write that the philo is eating
+	8- Usleep the philo for time_to_eat milliseconds with precise_usleep
+	9- Check if the philo is full (if so, set philo_full to true)
+	10-Unlock the first fork
+	11-Unlock the second fork
+
+All functions used here have already been explained so we know why we do each action in this
+order.
+
+-------------------------------------------------
+
+*Going back to dinner_simulation function, we call the write_status function with SLEEPING status,
+precise_usleep with time_to_sleep in milliseconds & then we call thinking function, this time with
+false as we are inside the simulation.(return NULL for warning compilation message)
+
+-------------------------------------------------
+
+*Back to dinner_start function, we passed the main loop that creates every thread and with
+dinner_simulation function.
+
+We need to create an extra thread with safe_thread function. This thread will be in charge of
+monitoring the simulation. This is why in table structure is called monitor (pthread_t	monitor).
+
+This thread will use the monitor_dinner function:
+-------------------------------------------------
+
+void	*monitor_dinner(void *data)
+{
+	t_table *table;
+	int		i;
+
+	table = (t_table *)data;
+
+	while (!all_threads_running(&table->table_mutex,
+				&table->threads_running_num, table->philo_nbr))
+		;
+	while (!simulation_finished(table))
+	{
+		i = -1;
+		while (++i < table->philo_nbr && !simulation_finished(table))
+		{
+			if (philo_died(table->philos + i))
+			{
+				set_bool(&table->table_mutex, &table->end_simulation, true);
+				write_status(DIED, table->philos + i, DEBUG_MODE);
+			}
+		}
+	}
+	return (NULL);
+}
+
+-------------------------------------------------
+*Like the in dinner_simulation function, in monitor_dinner simulation we need to recover the data:
+
+	t_table *table;
+	table = (t_table *)data;
+
+while not all threads are ready (philos are beeing created) we wait.
+
+all_threads_running function:
+-------------------------------------------------
+
+bool	all_threads_running(t_mtx *mutex, long *threads, long philo_nbr)
+{
+	bool ret;
+
+	ret = false;
+	safe_mutex(mutex, LOCK);
+	if (*threads == philo_nbr)
+		ret = true;
+	safe_mutex(mutex, UNLOCK);
+	return (ret);
+}
+
+-------------------------------------------------
+*This function is to synchronise the simulation start with a unic start_simulation timestamp.
+It locks the table (table_mutex), if threads_running_num == philo_nbr (meaning all threads are
+running), it sets ret to true, unlocks the table and return true, else it returns false.
+
+-------------------------------------------------
+*Back to monitor thread, it iterates while the simulation is not finished through the philos, and
+calls to philo_died function for each philo.
+
+If the philo_died function returns true:
+
+	1- Set the end_simulation flag to true.
+	2- Writes the DIED status
+
+*Function philo_died:
+-------------------------------------------------
+
+static bool philo_died(t_philo *philo)
+{
+	long	elapsed;
+	long	t_to_die;
+
+	if (get_bool(&philo->philo_mutex, &philo->full))
+		return (false);
+
+	elapsed = gettime(MILLISECOND) - get_long(&philo->philo_mutex, &philo->last_meal_time);
+	t_to_die = philo->table->time_to_die / 1e3;
+
+	if (elapsed > t_to_die)
+		return (true);
+	return (false);
+}
+
+-------------------------------------------------
+*This function checks if the philo is full (if so returns), then calculates an elapsed time by
+substracting last_meal_time timestamp to a new timestamp.
+
+If elapsed time > than time_to_die (converted to milliseconds since we converted all to
+microseconds at the very begining) returns true --> meaning philo died
+Else return false.
+
+-------------------------------------------------
+
+*Back to dinner_start function (this last loop in monitor thread that checks if a philo died will
+be running in the background), we:
+
+	1- Set the start_simulation timestamp with gettime function
+	2- Sets all_threads_ready to true (monitor has waited for all to be ready)
+	3- Loops through all philo threads to join them
+
+
+**Finally, if we pass to the next line, means that the simulation has ended for one of the 2 main
+reasons (1 philo has died or all philos are full)
+
+We set the end_simulation to true and join the monitor thread.
+
+Here our program has finished, if not, it keeps executing.
+
+***We did not check for the lone_philo function at its time, lets see it now:
+-------------------------------------------------
+
+void	*lone_philo(void *arg)
+{
+	t_philo	*philo;
+
+	philo = (t_philo *)arg;
+	wait_all_threads(philo->table);
+	set_long(&philo->philo_mutex, &philo->last_meal_time, gettime(MILLISECOND));
+	increase_long(&philo->table->table_mutex, &philo->table->threads_running_num);
+	write_status(TAKE_FIRST_FORK, philo, DEBUG_MODE);
+	while (!simulation_finished(philo->table))
+		usleep(200);
+	return (NULL);
+}
+
+-------------------------------------------------
+*Remember that this thread is created in case that we recieved 1 as 1rst argv meaning just one
+philo will be created.
+
+In this case, we recober the data from the function (to acces the philo) and:
+
+	1- Wait all threads (one in this case)
+	2- Set last_meal_time with current timestamp
+	3- Increase threads_running_num
+	4- Write that take the first fork
+	5- While simulation has not finished we sleep the program for 200 milliseconds
+
+This way, after this, monitor thread will be created, everithing will go on as normal simulation
+but with just one thread, and once the monitor thread checked that a philo died, we print it, &
+end_simulation changes to true, join monitor thread & program ends.
+-------------------------------------------------
