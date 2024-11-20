@@ -1,0 +1,83 @@
+*THREATS*
+
+Every process is composed of threads, even a simple program to print "hello world" in your terminal has one thread.
+
+To thest it you can create a test.c file with the next code & open your activity monitor app (serach
+the program name or ./a.out if you did't gave the program a name):
+
+		#include <stdio.h> //--> for printf()
+		#include <unistd.h>//-->for sleep()
+	
+		int	main(void)
+		{
+			printf("hello world");
+			sleep(20);//Sleep the process for 20 seconds to be able to see the process
+		}
+
+So yes, every process/program is composed of 1 or more threads (you decide), this way you can 
+exploit really well multi-core chips (all the cors available in you computer).
+If you know what you're doing, this could make the program much faster.
+
+Threads like Starbucks Workers (starbucks.c file)
+If you compile & execute the program you should see an output like this:
+
+Sturbucks worker Luca is making coffe...
+coffe made by Luca ready
+Sturbucks worker Paolo is making coffe...
+coffe made by Paolo ready
+
+Lets upgrade the game with threads (starbucks_threads.c file)
+In this file you have different versions of thread use with some useful additional info.
+You can comment & uncomment + compile & execute to see the different outputs.
+
+As you'll see in the last versions of the last file, threads are process that run in simultaniuslly,
+& this can generate control problems.
+If we think in the starbucks workers situation, is like having a 3 step process to serve &
+control the coffees served:
+
+	1- Worker read data from orders status(LOAD)
+	2- Worker make & serve the coffee (function execution)
+	3- Worker write data in orders status(STORE)
+
+If we have just 1 worker is not a problem, but what if we have two?
+
+	We have 2 cuples of customers that order 1 coffee/person (2 orders with 2 coffes/order --> we 
+	have 4 coffes to serve)
+
+	WORKER 1:
+		1- Worker reads that 0 orders have been served
+		2- Worker make 2 coffies for the 1rst order & serves them
+
+	*SIMULTANIUSLY!!*
+
+	WORKER 2:
+		1- Worker reads that 0 orders have been served
+		2- Worker make 2 coffies for the 1rst order & serves them
+
+	*What happens when they go to write the orders served?*
+
+	WORKER 1:
+		3- Worker know that when he read the order status 0 orders were served so write 1 
+		order with 2 coffees served
+	
+	*SIMULTANIUSLY!!*
+
+	WORKER 2:
+		3- Worker know that when he read the order status 0 orders were served so write 1 
+		order with 2 coffees served
+
+	**PROBLEM** 
+	Two orders with 2 coffees/order have been served but just 1 order with 2 coffees are noted in
+	the order status
+
+**HOW DO WE SOLVE THIS PROBLEM?**
+This problem is called "race conditions"
+
+We need to put a lock with just 1 key on the order status document.
+This way, 1rst worker read, locks & take the key.
+Until this worker has served & updated order status, worker 2 can't read.
+Once worker 1 writes order status, worker 2 does the same process.
+
+Let's see this solution in the race_condition.c file
+You can compile & execute 1rst and 2nd version many times and see the difference (you can use
+program_exec_file.c & compile it like this: "" OR like this: "" to see this difference);
