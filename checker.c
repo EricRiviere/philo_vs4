@@ -1,11 +1,23 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   checker.c                                          :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: eriviere <marvin@42.fr>                    +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/11/21 15:31:08 by eriviere          #+#    #+#             */
+/*   Updated: 2024/11/21 15:31:12 by eriviere         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #include "philo.h"
 
 long	ft_atol(const char *str)
 {
-	int	i;
+	int		i;
 	long	num;
-	int	sign;
-	
+	int		sign;
+
 	i = 0;
 	num = 0;
 	sign = 1;
@@ -39,14 +51,16 @@ static bool	is_positive_int(char *argv)
 	return (1);
 }
 
-static bool	is_unsigned_int(char *argv)
+static int	is_unsigned_int(char *argv)
 {
 	long	num;
 
+	if (!is_digit(argv))
+		return (1);
 	num = ft_atol(argv);
 	if (num < 0 || num > INT_MAX)
 		return (0);
-	return (1);
+	return (2);
 }
 
 static bool	valid_inputs(char **argv)
@@ -56,10 +70,17 @@ static bool	valid_inputs(char **argv)
 	i = 1;
 	while (argv[i])
 	{
-		if (i == 5 )
+		if (i == 5)
 		{
-			if (!is_unsigned_int(argv[i]))
+			if (is_unsigned_int(argv[i]) == 0)
 				return (0);
+			else if (is_unsigned_int(argv[i]) == 1)
+			{
+				argv[i] = 0;
+				return (1);
+			}
+			else
+				return (1);
 		}
 		else if (!is_positive_int(argv[i]))
 			return (0);

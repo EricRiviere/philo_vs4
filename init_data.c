@@ -1,3 +1,15 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   init_data.c                                        :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: eriviere <marvin@42.fr>                    +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/11/21 15:31:27 by eriviere          #+#    #+#             */
+/*   Updated: 2024/11/21 15:31:31 by eriviere         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #include "philo.h"
 
 static void	init_forks(t_philo *philo, t_fork *forks)
@@ -16,7 +28,7 @@ static void	init_forks(t_philo *philo, t_fork *forks)
 
 static void	init_philo(t_table *table)
 {
-	int	i;
+	int		i;
 	t_philo	*philo;
 
 	i = 0;

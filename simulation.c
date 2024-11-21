@@ -1,8 +1,45 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   simulation.c                                       :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: eriviere <marvin@42.fr>                    +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/11/21 15:32:41 by eriviere          #+#    #+#             */
+/*   Updated: 2024/11/21 19:17:39 by eriviere         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #include "philo.h"
+
+static void	*actions(t_philo *philo)
+{
+	if (!is_dead(philo))
+		take_forks(philo);
+	if (!is_dead(philo))
+		eat(philo);
+	if (!is_dead(philo))
+		to_sleep(philo);
+	if (!is_dead(philo))
+		think(philo);
+	if (is_dead(philo))
+	{
+		pthread_mutex_lock(&philo->table->table_mtx);
+		if (!philo->table->philo_dead)
+		{
+			philo->table->philo_dead = true;
+			print_dead(philo, "died");
+		}
+		pthread_mutex_unlock(&philo->table->table_mtx);
+		return (NULL);
+	}
+	else
+		return (NULL);
+}
 
 static void	*simulation(void *data)
 {
-	t_philo *philo;
+	t_philo	*philo;
 
 	philo = (t_philo *)data;
 	pthread_mutex_lock(&philo->table->table_mtx);
@@ -14,26 +51,8 @@ static void	*simulation(void *data)
 		if (get_bool(&philo->table->table_mtx, &philo->table->philo_dead))
 			break ;
 		if (!get_bool(&philo->philo_mtx, &philo->full))
-		{
-			//Take forks & eat
-			if (!is_dead(philo))
-				take_forks(philo);
-			if (!is_dead(philo))
-				eat(philo);
-			//Sleep
-			if (!is_dead(philo))
-				to_sleep(philo);
-			//Think
-			if (!is_dead(philo))
-				think(philo);
-			else if (get_bool(&philo->philo_mtx, &philo->dead))
-			{
-				set_bool(&philo->table->table_mtx, &philo->table->philo_dead, true);
-				print_dead(philo, "died");
-				return (NULL);
-			}
-		}
-		else 
+			actions(philo);
+		else
 			break ;
 	}
 	return (NULL);
@@ -41,7 +60,7 @@ static void	*simulation(void *data)
 
 static void	*lone_simulation(void *data)
 {
-	t_philo *philo;
+	t_philo	*philo;
 
 	philo = (t_philo *)data;
 	pthread_mutex_lock(&philo->table->table_mtx);
@@ -58,31 +77,27 @@ static void	*lone_simulation(void *data)
 void	start_simulation(t_table *table)
 {
 	pthread_t	monitor_th;
-	int	i;
+	int			i;
 
 	if (table->min_meals == 0)
 		return ;
 	else if (table->philo_nbr == 1)
 	{
-		pthread_create(&table->philos[0].th_id, NULL, lone_simulation, &table->philos[0]);
+		pthread_create(&table->philos[0].th_id, NULL,
+			lone_simulation, &table->philos[0]);
 		usleep(40000);
 		pthread_join(table->philos[0].th_id, NULL);
 	}
 	else
 	{
-		i = 0;
-		while (i < table->philo_nbr)
-		{
-			pthread_create(&table->philos[i].th_id, NULL, simulation, &table->philos[i]);
-			i++;
-		}
+		i = -1;
+		while (++i < table->philo_nbr)
+			pthread_create(&table->philos[i].th_id, NULL,
+				simulation, &table->philos[i]);
 	}
 	pthread_create(&monitor_th, NULL, monitor, table);
-	i = 0;
-	while (i < table->philo_nbr)
-	{
+	i = -1;
+	while (++i < table->philo_nbr)
 		pthread_join(table->philos[i].th_id, NULL);
-		i++;
-	}
 	pthread_join(monitor_th, NULL);
 }

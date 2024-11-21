@@ -1,53 +1,21 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   utils.c                                            :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: eriviere <marvin@42.fr>                    +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/11/21 15:32:59 by eriviere          #+#    #+#             */
+/*   Updated: 2024/11/21 15:33:02 by eriviere         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #include "philo.h"
 
 void	error_exit(const char *error)
 {
 	printf("%s\n", error);
 	exit(EXIT_FAILURE);
-}
-
-bool	get_long(t_mtx *mutex, long *value)
-{
-	long	ret;
-
-	pthread_mutex_lock(mutex);
-	ret = *value;
-	pthread_mutex_unlock(mutex);
-	return (ret);
-}
-
-void	set_long(t_mtx *mutex, long *dest, long value)
-{
-	pthread_mutex_lock(mutex);
-	*dest = value;
-	pthread_mutex_unlock(mutex);
-}
-
-bool	get_bool(t_mtx *mutex, bool *value)
-{
-	bool	ret;
-
-	pthread_mutex_lock(mutex);
-	ret = *value;
-	pthread_mutex_unlock(mutex);
-	return (ret);
-}
-
-void	set_bool(t_mtx *mutex, bool *dest, bool value)
-{
-	pthread_mutex_lock(mutex);
-	*dest = value;
-	pthread_mutex_unlock(mutex);
-}
-
-long	gettime()
-{
-	long		time;
-	struct timeval	tv;
-	
-	gettimeofday(&tv, NULL);
-	time = tv.tv_sec * 1e3 + (tv.tv_usec / 1e3);
-	return (time);
 }
 
 void	precise_usleep(long ms)
@@ -76,7 +44,7 @@ bool	is_dead(t_philo *philo)
 	return (0);
 }
 
-void cleanup_table(t_table *table)
+void	cleanup_table(t_table *table)
 {
 	int	i;
 
@@ -91,4 +59,11 @@ void cleanup_table(t_table *table)
 	pthread_mutex_destroy(&table->print_mtx);
 	free(table->philos);
 	free(table->forks);
+}
+
+bool	is_digit(const char *str)
+{
+	if (str[0] >= '0' && str[0] <= '9')
+		return (1);
+	return (0);
 }
