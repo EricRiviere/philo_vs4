@@ -75,3 +75,20 @@ bool	is_dead(t_philo *philo)
 	}
 	return (0);
 }
+
+void cleanup_table(t_table *table)
+{
+	int	i;
+
+	i = 0;
+	while (i < table->philo_nbr)
+	{
+		pthread_mutex_destroy(&table->philos[i].philo_mtx);
+		pthread_mutex_destroy(&table->forks[i].fork);
+		i++;
+	}
+	pthread_mutex_destroy(&table->table_mtx);
+	pthread_mutex_destroy(&table->print_mtx);
+	free(table->philos);
+	free(table->forks);
+}

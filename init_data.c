@@ -47,6 +47,7 @@ void	init_data(t_table *table, char **argv)
 		table->min_meals = ft_atol(argv[5]);
 	else
 		table->min_meals = -1;
+	table->philo_dead = false;
 	table->philos = malloc(sizeof(t_philo) * table->philo_nbr);
 	table->forks = malloc(sizeof(t_fork) * table->philo_nbr);
 	while (i < table->philo_nbr)
@@ -55,7 +56,6 @@ void	init_data(t_table *table, char **argv)
 		table->forks[i].id = i;
 		i++;
 	}
-	table->all_thr_ready = false;
 	pthread_mutex_init(&table->table_mtx, NULL);
 	pthread_mutex_init(&table->print_mtx, NULL);
 	init_philo(table);

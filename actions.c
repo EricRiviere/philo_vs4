@@ -29,5 +29,5 @@ void    to_sleep(t_philo *philo)
 void    think(t_philo *philo)
 {
     print_status(philo, "is thinking");
-	precise_usleep(10);
+	precise_usleep(5);
 }

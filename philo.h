@@ -51,7 +51,7 @@ struct	s_table
 	long	tto_sleep;
 	long	min_meals;
 	long	sim_start;
-	bool	all_thr_ready;
+	bool	philo_dead;
 	t_mtx	table_mtx;
 	t_mtx	print_mtx;
 	t_fork	*forks;
@@ -81,10 +81,17 @@ void	start_simulation(t_table *table);
 
 //Print status
 void	print_status(t_philo *philo, const char *status);
+void	print_dead(t_philo *philo, const char *status);
 
 //Actions
 void    take_forks(t_philo *philo);
 void    eat(t_philo *philo);
 void    to_sleep(t_philo *philo);
 void    think(t_philo *philo);
+
+//Monitor
+void    *monitor(void *data);
+
+//Clean
+void cleanup_table(t_table *table);
 #endif
