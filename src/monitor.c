@@ -35,7 +35,6 @@ static bool	full_philos(t_table *table)
 
 void	*monitor(void *data)
 {
-	int		i;
 	t_table	*table;
 
 	table = (t_table *)data;
