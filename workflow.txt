@@ -1,0 +1,355 @@
+This is a short explaination of how I decided to develop the Philosophers project of 42 Barcelona.
+The dining philosophers project is designed to understand how threads work and the basis of how to work with them.
+
+Threads are units of execution within a program that run independently, allowing tasks to be 
+performed concurrently (at the same time). This enables better use of CPU resources, parallel 
+execution, and can improve performance, especially in multi-core systems.
+
+Here you can find the documentation about the pthread.h header:
+https://pubs.opengroup.org/onlinepubs/7908799/xsh/pthread.h.html
+
+For this project we used:
+
+	-Create (pthread_create):
+
+		Used to create a new thread, allowing a function to run concurrently with the main program.
+		It takes parameters like the thread ID, attributes, the function to be executed, and its 
+		arguments.
+
+	-Join (pthread_join):
+
+		Waits for a specific thread to finish its execution. This ensures that the main thread or 
+		other threads can wait for a thread to complete before continuing.
+    
+    *The concurrency of threads can create two situations that we need to understand before explaining
+    the next set of function used for the program, Race Conditions & Deadlocks:
+
+    	*Race conditions:
+    		Happen when two or more threads access shared data at the same time, and the outcome 
+    		depends on the order of execution. This can lead to unpredictable and erroneous results, 
+    		as the threads are "racing" to use the data without proper synchronization.
+
+            A clear example of this in the project is when two philosopher threads try to acces de 
+            shared variable "simulation_start_time", that returns a timestap.
+
+	    *Deadlocks:
+	    	Occur when two or more threads are waiting for each other to release resources, causing all
+	    	of them to be stuck indefinitely. This happens when threads hold some resources while 
+	    	trying to acquire others already locked by another thread, creating a cycle of dependency.
+
+            A short example of this in the project is fork access. If all the philosophers have the same
+            strategy to access shared resourse (lets remember that there ara as many forks as philosophers
+            and each philosopher needs two forks to eat), for example: "grab the fork with your same ID",
+            all philosophers would lock their fork and would be locked because they can't access another fork.
+
+	-Init (pthread_mutex_init):
+
+		Initializes a mutex to be used for protecting shared resources. It sets up the mutex to be 
+		used in lock and unlock operations.
+
+	-Lock (pthread_mutex_lock):
+
+		Acquires the mutex lock, preventing other threads from accessing the shared resource until 
+		it is unlocked. This ensures thread safety when multiple threads need to access shared data.
+
+	-Unlock (pthread_mutex_unlock):
+
+		Releases the mutex lock, allowing other threads to access the shared resource. It signals 
+		that the critical section is now free for use by other threads.
+
+	-Destroy (pthread_mutex_destroy):
+
+		Used to free resources allocated for a mutex (mutual exclusion lock). It's called after the 
+		mutex is no longer needed to prevent memory leaks.
+
+After this short theory explaination, lets dig in to the project.
+
+First, I'd like to share the header:
+--------------------------------------------------------
+PHILO.H:
+
+#ifndef PHILO_H
+# define PHILO_H
+# include <stdlib.h>    --> For malloc and EXIT_FAILURE/EXIT_SUCCESS
+# include <stdio.h>     --> For printf
+# include <stdbool.h>   --> For bool data type
+# include <limits.h>    --> For INT_MAX
+# include <pthread.h>   --> For threads (all functions mentioned)
+# include <sys/time.h>  --> For gettimeofday function
+# include <unistd.h>    --> For usleep 
+//Macros
+# define ARGS_ERROR "\nIncorrect arguments.\n"  --> macro to print argument error
+
+//Shortener
+typedef pthread_mutex_t	t_mtx; --> Because the function name is so long
+
+//Predefs
+typedef struct s_philo	t_philo;    --> To be able to create a struct type inside another
+typedef struct s_table	t_table;    --> if one type of data doesn't exists before using it
+typedef struct s_fork	t_fork;     --> on another type of date it causes an error
+
+//Structs
+struct	s_fork  --> Fork structure
+{
+	t_mtx	fork;   --> mutex for each fork (lock it, grab it & unlock it)
+	int		id;     --> fork id for debuging (usefull to check fork assignation & use)
+};
+
+struct	s_philo --> Philosopher structure
+{
+	int			id;             --> philosopher id for print & debug
+	long		meals;          --> variable to control each philosopher number of meals
+	long		lm_t;           --> last meal timestamp for each philosoper
+	bool		full;           --> boolean to know when a philosopher has eat enought
+	bool		dead;           --> boolean to know if a philosopher died
+	pthread_t	th_id;          --> thread id to lock/unlock each philosopher
+	t_mtx		philo_mtx;      --> mutex for each philosopher (for monitoring)
+	t_fork		*first_fork;    --> pointer to the first fork to grab
+	t_fork		*second_fork;   --> pointer to the second fork to grab
+	t_table		*table;         --> pointer to the dinner table
+};
+
+struct	s_table --> Dinner table structure
+{
+	long	philo_nbr;  --> number of philosophers in the table/simulation
+	long	tto_die;    --> max time between meal & meal for each philosopher
+	long	tto_eat;    --> time a philosopher spends eating
+	long	tto_sleep;  --> time a philosopher spends sleeping (after eating)
+	long	min_meals;  --> meals for a philosopher to be full
+	long	sim_start;  --> timestamp of simulation start
+	bool	philo_dead; --> to monitor if a philosopher died
+	t_mtx	table_mtx;  --> mutex to acces table shared data
+	t_mtx	print_mtx;  --> mutex to lock acces to print
+	t_fork	*forks;     --> pointer to all forks
+	t_philo	*philos;    --> pointer to all philosophers
+};
+
+//Utils
+void	error_exit(const char *error);  --> standard error & exit function
+void	precise_usleep(long ms);        --> more precise usleep (we work in milliseconds)
+bool	is_dead(t_philo *philo);        --> common function to cheack if a philo is dead
+bool	is_digit(const char *str);      --> utility function for argument check functions
+
+//getters & setters
+bool	get_bool(t_mtx *mutex, bool *value);            --> to lock, get a bool & unlock 
+void	set_bool(t_mtx *mutex, bool *dest, bool value); --> to lock, set a bool & unlock
+long	gettime(void);                                  --> to get timestamp in milliseconds
+bool	get_long(t_mtx *mutex, long *value);            --> to lock, get a long & unlock 
+void	set_long(t_mtx *mutex, long *dest, long value); --> to lock, set a long & unlock
+
+//Check inputs
+bool	correct_input(int argc, char **argv);   --> to check if arguments recieved are ok
+long	ft_atol(const char *str);               --> to convert inputs recieved to long integers
+
+//Init data
+void	init_data(t_table *table, char **argv); --> to initialize all data needed before simulation
+
+//Simulation
+void	start_simulation(t_table *table);       --> to start dinner simulation
+
+//Print status
+void	print_status(t_philo *philo, const char *status);   --> to lock, print an status & unlock
+void	print_dead(t_philo *philo, const char *status);     --> to lock, print dead status & unlock
+
+//Actions
+void	take_forks(t_philo *philo); --> function to take both forks
+void	eat(t_philo *philo);        --> function to eat
+void	to_sleep(t_philo *philo);   --> function to sleep
+void	think(t_philo *philo);      --> function to think
+
+//Monitor
+void	*monitor(void *data);       --> function for monitor thread
+
+//Clean
+void	cleanup_table(t_table *table);  --> function to clean all data (destroy mutex & free)
+#endif
+
+--------------------------------------------------------
+
+Now that we have a basic idea of the data we'll use for the project, let's start from the very begginig,
+the main function, that needs to be clean & understandable:
+
+--------------------------------------------------------
+MAIN.C:
+
+int	main(int argc, char **argv)
+{
+	t_table	table;
+
+	if (!correct_input(argc, argv))
+		error_exit(ARGS_ERROR);
+	else
+	{
+		init_data(&table, argv);
+		start_simulation(&table);
+		cleanup_table(&table);
+		exit(EXIT_SUCCESS);
+	}
+}
+
+--------------------------------------------------------
+We could ddivide the main function in 4 phases:
+
+1 - Check if arguments recieved for program execution are correct, if not exit program.
+2 - Init all data needed for the program
+3 - Start the simulation / dinner
+4 - Cleanup all data used for the program
+
+Since the functions in the main program should be simple & easy to understand, a t_table
+data called table is declared at the very beggining to pass it to all the functions.
+
+Let's start with phase 1
+
+1 - CHECK ARGUMENTS (check.c & utils.c)
+--------------------------------------------------------
+CORRECT_INPUT:
+
+bool	correct_input(int argc, char **argv)
+{
+	if (argc < 5 || argc > 6)
+		return (0);
+	if (!valid_inputs(argv))
+		return (0);
+	return (1);
+}
+
+This function controls 1srt the number of arguments, since we need to accept:
+
+    ./philo 4 410 200 200 5
+    argc(1)(2)(3) (4) (5) (6)
+
+    2 - Number of philosophers
+    3 - Time to die
+    4 - Time to eat
+    5 - Time to sleep
+    6 - Optional arg of meals for a philo to be full    
+
+Then it checks if all arguments are valid with valid_input() function.
+If so, returns ture/false --> correct input/non correct input.
+
+--------------------------------------------------------
+VALID_INPUTS:
+
+static bool	valid_inputs(char **argv)
+{
+	int	i;
+
+	i = 1;
+	while (argv[i])
+	{
+		if (i == 5)
+		{
+			if (is_unsigned_int(argv[i]) == 0)
+				return (0);
+			else if (is_unsigned_int(argv[i]) == 1)
+			{
+				argv[i] = 0;
+				return (1);
+			}
+			else
+				return (1);
+		}
+		else if (!is_positive_int(argv[i]))
+			return (0);
+		i++;
+	}
+	return (1);
+}
+
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------
+--------------------------------------------------------

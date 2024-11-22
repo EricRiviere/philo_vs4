@@ -65,5 +65,7 @@ bool	is_digit(const char *str)
 {
 	if (str[0] >= '0' && str[0] <= '9')
 		return (1);
+	else if (str[0] == '+' && (str[1] >= '0' && str[1] <= '9'))
+		return (1);
 	return (0);
 }
