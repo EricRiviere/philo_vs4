@@ -24,8 +24,8 @@ void	eat(t_philo *philo)
 {
 	philo->meals++;
 	if (philo->meals == philo->table->min_meals)
-		set_bool(&philo->philo_mtx, &philo->full, true);
-	set_long(&philo->philo_mtx, &philo->lm_t, gettime());
+		philo->full = true;
+	philo->lm_t = gettime();
 	print_status(philo, "is eating");
 	precise_usleep(philo->table->tto_eat);
 	pthread_mutex_unlock(&philo->first_fork->fork);

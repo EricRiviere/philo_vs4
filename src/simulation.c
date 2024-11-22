@@ -68,8 +68,7 @@ static void	*lone_simulation(void *data)
 	philo->lm_t = gettime();
 	pthread_mutex_unlock(&philo->table->table_mtx);
 	print_status(philo, "has taken a fork");
-	if (!get_bool(&philo->philo_mtx, &philo->dead))
-		precise_usleep(philo->table->tto_die);
+	precise_usleep(philo->table->tto_die);
 	set_bool(&philo->philo_mtx, &philo->dead, true);
 	return (NULL);
 }
